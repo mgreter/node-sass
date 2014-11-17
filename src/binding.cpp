@@ -1,4 +1,5 @@
 #include <nan.h>
+#include <iostream>
 #include "sass_context_wrapper.h"
 
 char* CreateString(Local<Value> value) {
@@ -13,7 +14,6 @@ char* CreateString(Local<Value> value) {
 }
 
 void ExtractOptions(Local<Object> options, void* cptr, sass_context_wrapper* ctx_w, bool isFile) {
-  bool source_comments;
 
   if (ctx_w) {
     NanAssignPersistent(ctx_w->stats, options->Get(NanNew("stats"))->ToObject());
@@ -31,34 +31,25 @@ void ExtractOptions(Local<Object> options, void* cptr, sass_context_wrapper* ctx
     ctx_w->errorCallback = new NanCallback(errorCallback);
   }
 
+  struct Sass_Context* ctx;
+
   if (isFile) {
-    struct Sass_File_Context* fctx = (struct Sass_File_Context*) cptr;
-    struct Sass_Context* ctx = sass_file_context_get_context(fctx);
-    struct Sass_Options* sass_options = sass_context_get_options(ctx);
-
-    sass_option_set_output_path(sass_options, CreateString(options->Get(NanNew("outFile"))));
-    sass_option_set_image_path(sass_options, CreateString(options->Get(NanNew("imagePath"))));
-    sass_option_set_output_style(sass_options, (Sass_Output_Style)options->Get(NanNew("style"))->Int32Value());
-    sass_option_set_source_comments(sass_options, source_comments = options->Get(NanNew("comments"))->BooleanValue());
-    sass_option_set_omit_source_map_url(sass_options, options->Get(NanNew("omitSourceMapUrl"))->BooleanValue());
-    sass_option_set_source_map_file(sass_options, CreateString(options->Get(NanNew("sourceMap"))));
-    sass_option_set_include_path(sass_options, CreateString(options->Get(NanNew("paths"))));
-    sass_option_set_precision(sass_options, options->Get(NanNew("precision"))->Int32Value());
+    ctx = sass_file_context_get_context((struct Sass_File_Context*) cptr);
   } else {
-    struct Sass_Data_Context* dctx = (struct Sass_Data_Context*) cptr;
-    struct Sass_Context* ctx = sass_data_context_get_context(dctx);
-    struct Sass_Options* sass_options = sass_context_get_options(ctx);
-
-    sass_option_set_output_path(sass_options, CreateString(options->Get(NanNew("outFile"))));
-    sass_option_set_is_indented_syntax_src(sass_options, options->Get(NanNew("indentedSyntax"))->BooleanValue());
-    sass_option_set_image_path(sass_options, CreateString(options->Get(NanNew("imagePath"))));
-    sass_option_set_output_style(sass_options, (Sass_Output_Style)options->Get(NanNew("style"))->Int32Value());
-    sass_option_set_source_comments(sass_options, source_comments = options->Get(NanNew("comments"))->BooleanValue());
-    sass_option_set_omit_source_map_url(sass_options, options->Get(NanNew("omitSourceMapUrl"))->BooleanValue());
-    sass_option_set_source_map_file(sass_options, CreateString(options->Get(NanNew("sourceMap"))));
-    sass_option_set_include_path(sass_options, CreateString(options->Get(NanNew("paths"))));
-    sass_option_set_precision(sass_options, options->Get(NanNew("precision"))->Int32Value());
+    ctx = sass_data_context_get_context((struct Sass_Data_Context*) cptr);
   }
+
+  struct Sass_Options* sass_options = sass_context_get_options(ctx);
+  sass_option_set_output_path(sass_options, CreateString(options->Get(NanNew("outFile"))));
+  sass_option_set_is_indented_syntax_src(sass_options, options->Get(NanNew("indentedSyntax"))->BooleanValue());
+  sass_option_set_image_path(sass_options, CreateString(options->Get(NanNew("imagePath"))));
+  sass_option_set_output_style(sass_options, (Sass_Output_Style)options->Get(NanNew("style"))->Int32Value());
+  sass_option_set_source_comments(sass_options, options->Get(NanNew("comments"))->BooleanValue());
+  sass_option_set_omit_source_map_url(sass_options, options->Get(NanNew("omitSourceMapUrl"))->BooleanValue());
+  sass_option_set_source_map_file(sass_options, CreateString(options->Get(NanNew("sourceMap"))));
+  sass_option_set_include_path(sass_options, CreateString(options->Get(NanNew("paths"))));
+  sass_option_set_precision(sass_options, options->Get(NanNew("precision"))->Int32Value());
+
 }
 
 void FillStatsObj(Handle<Object> stats, Sass_Context* ctx) {
@@ -80,24 +71,6 @@ void FillStatsObj(Handle<Object> stats, Sass_Context* ctx) {
     source_map = NanNew<String>(sass_context_get_source_map_string(ctx));
   } else {
     source_map = NanNew<String>("{}");
-  }
-
-  (*stats)->Set(NanNew("sourceMap"), source_map);
-}
-
-void FillStatsObj(Handle<Object> stats, struct Sass_File_Context* fctx) {
-  Handle<Value> source_map;
-  struct Sass_Context* ctx = sass_file_context_get_context(fctx);
-
-  FillStatsObj(stats, ctx);
-
-  if (sass_context_get_error_status(ctx)) {
-      return;
-  }
-  if (sass_context_get_source_map_string(ctx)) {
-    source_map = NanNew<String>(sass_context_get_source_map_string(ctx));
-  } else {
-    source_map = NanNull();
   }
 
   (*stats)->Set(NanNew("sourceMap"), source_map);
@@ -176,18 +149,18 @@ NAN_METHOD(RenderSync) {
   ExtractOptions(options, dctx, NULL, false);
   compile_data(dctx);
   FillStatsObj(options->Get(NanNew("stats"))->ToObject(), ctx);
-//  free(source_string);
+  free(source_string);
 
   if (sass_context_get_error_status(ctx) == 0) {
     Local<String> output = NanNew<String>(sass_context_get_output_string(ctx));
 
-    free_data_context(dctx);
+    sass_delete_data_context(dctx);
     NanReturnValue(output);
   }
 
   Local<String> error = NanNew<String>(sass_context_get_error_json(ctx));
 
-  free_data_context(dctx);
+  sass_delete_data_context(dctx);
   NanThrowError(error);
 
   NanReturnUndefined();
@@ -229,13 +202,13 @@ NAN_METHOD(RenderFileSync) {
   if (sass_context_get_error_status(ctx) == 0) {
     Local<String> output = NanNew<String>(sass_context_get_output_string(ctx));
 
-    free_file_context(fctx);
+    sass_delete_file_context(fctx);
     NanReturnValue(output);
   }
 
   Local<String> error = NanNew<String>(sass_context_get_error_json(ctx));
 
-  free_file_context(fctx);
+  sass_delete_file_context(fctx);
   NanThrowError(error);
 
   NanReturnUndefined();
