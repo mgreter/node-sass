@@ -24,8 +24,8 @@ void dispatched_async_uv_callback(uv_async_t *req){
   imports_collection.push_back(ctx_w);
 
   Handle<Value> argv[] = {
-    NanNew<String>(strdup(ctx_w->file)),
-    NanNew<String>(strdup(ctx_w->prev)),
+    NanNew<String>(strdup(ctx_w->file ? ctx_w->file : 0)),
+    NanNew<String>(strdup(ctx_w->prev ? ctx_w->prev : 0)),
     NanNew<Number>(imports_collection.size() - 1)
   };
 
@@ -40,8 +40,8 @@ struct Sass_Import** sass_importer(const char* file, const char* prev, void* coo
 {
   sass_context_wrapper* ctx_w = static_cast<sass_context_wrapper*>(cookie);
 
-  ctx_w->file = strdup(file);
-  ctx_w->prev = strdup(prev);
+  ctx_w->file = file ? strdup(file) : 0;
+  ctx_w->prev = prev ? strdup(prev) : 0;
   ctx_w->async.data = (void*)ctx_w;
   uv_async_send(&ctx_w->async);
 
@@ -182,7 +182,7 @@ void make_callback(uv_work_t* req) {
     node::FatalException(try_catch);
   }
 
-  sass_free_context_wrapper(ctx_w);
+  // sass_free_context_wrapper(ctx_w);
 }
 
 NAN_METHOD(Render) {
@@ -218,13 +218,13 @@ NAN_METHOD(RenderSync) {
   if (sass_context_get_error_status(ctx) == 0) {
     Local<String> output = NanNew<String>(sass_context_get_output_string(ctx));
 
-    sass_delete_data_context(dctx);
+    // sass_free_context_wrapper(ctx_w);
     NanReturnValue(output);
   }
 
   Local<String> error = NanNew<String>(sass_context_get_error_json(ctx));
 
-  sass_free_context_wrapper(ctx_w);
+  // sass_free_context_wrapper(ctx_w);
   NanThrowError(error);
 
   NanReturnUndefined();
@@ -265,13 +265,13 @@ NAN_METHOD(RenderFileSync) {
   if (sass_context_get_error_status(ctx) == 0) {
     Local<String> output = NanNew<String>(sass_context_get_output_string(ctx));
 
-    sass_delete_file_context(fctx);
+    // sass_free_context_wrapper(ctx_w);
     NanReturnValue(output);
   }
 
   Local<String> error = NanNew<String>(sass_context_get_error_json(ctx));
 
-  sass_free_context_wrapper(ctx_w);
+  // sass_free_context_wrapper(ctx_w);
   NanThrowError(error);
 
   NanReturnUndefined();
@@ -283,7 +283,7 @@ NAN_METHOD(ImportedCallback) {
   TryCatch try_catch;
 
   Local<Object> options = args[0]->ToObject();
-  char* source_string = CreateString(options->Get(NanNew("index")));
+  // char* source_string = CreateString(options->Get(NanNew("index")));
   Local<Value> returned_value = options->Get(NanNew("objectLiteral"));
 
   size_t index = options->Get(NanNew("index"))->Int32Value();
